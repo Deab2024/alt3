@@ -2,199 +2,183 @@
 <html lang="sv">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Responsivt Evenemangsflöde</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RSS Läsare</title>
   <style>
-    @font-face {
-      font-family: 'DINPro';
-      src: url('dinpro-regular.woff2') format('woff2');
-    }
-
-    html, body {
+    body {
+      background-color: black;
+      color: white;
+      font-family: Arial, sans-serif;
       margin: 0;
       padding: 0;
-      background-color: white;
-      color: black;
-      font-family: 'DINPro', sans-serif;
-      height: 100%;
-      width: 100%;
-    }
-
-    .event-container {
       display: flex;
-      flex-direction: column;
-      align-items: center;
       justify-content: flex-start;
+      align-items: center;
       height: 100vh;
-      width: 100vw;
-      overflow: hidden;
-      padding: 1rem;
-      box-sizing: border-box;
-      transition: opacity 1s ease-in-out;
-      opacity: 0;
     }
 
-    .event-container.visible {
-      opacity: 1;
-    }
-
-    .event-image {
+    #rssFeed {
       max-width: 100%;
-      max-height: 60vh;
-      object-fit: contain;
-      margin-bottom: 1rem;
+      padding-left: 10px;
+      box-sizing: border-box;
+      line-height: 1.2;
     }
 
-    .event-info {
-      text-align: center;
-      padding: 0 1rem;
-    }
-
-    .event-info h1 {
-      font-size: 1.8rem;
-      margin: 0 0 0.5rem 0;
-    }
-
-    .event-info p {
-      margin: 0.2rem 0;
-      font-size: 1.2rem;
-    }
-
-    @media (min-width: 768px) {
-      .event-container {
-        flex-direction: row;
-        align-items: center;
-        justify-content: center;
-        padding: 2rem;
-      }
-
-      .event-image {
-        max-width: 50%;
-        max-height: 80vh;
-        margin-right: 2rem;
-        margin-bottom: 0;
-      }
-
-      .event-info {
-        text-align: left;
-        max-width: 40%;
-      }
-
-      .event-info h1 {
-        font-size: 2.5rem;
-      }
-
-      .event-info p {
-        font-size: 1.5rem;
-      }
+    .event-title {
+      font-size: 30px;
+      margin: 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      text-align: left;
     }
   </style>
 </head>
 <body>
+  <div id="rssFeed">
+    <div id="eventTitle" class="event-title">VÄLKOMMEN TILL ESKILSTUNA</div>
+  </div>
 
-<div id="eventWrapper"></div>
+  <script>
+    const baseRssUrl = "https://visiteskilstuna.se/rest-api/rssService/getRssFeed?portletId=12.5b899160171ac5273c72ad9f&pageId=2.369be3c31580a19562d1977e";
+    const proxyUrl = "https://cozy-cobbler-0ca46b.netlify.app/.netlify/functions/rss-proxy?url=";
 
-<script>
-  const wrapper = document.getElementById("eventWrapper");
+    let events = [];
+    let currentEventIndex = 0;
+    let eventTimer = null;
+    let retryInterval = null;
 
-  const rssUrl = 'https://api.rss2json.com/v1/api.json?rss_url=' +
-    encodeURIComponent('https://visiteskilstuna.se/rest-api/rssService/getRssFeed?portletId=12.5b899160171ac5273c72ad9f&pageId=2.369be3c31580a19562d1977e');
+    const monthMap = {
+      jan: 1, feb: 2, mar: 3, apr: 4, maj: 5, jun: 6,
+      jul: 7, aug: 8, sep: 9, okt: 10, nov: 11, dec: 12
+    };
 
-  const fullMonthNames = {
-    "jan": "januari", "feb": "februari", "mar": "mars", "apr": "april",
-    "maj": "maj", "jun": "juni", "jul": "juli", "aug": "augusti",
-    "sep": "september", "okt": "oktober", "nov": "november", "dec": "december"
-  };
+    const decoder = document.createElement("textarea");
 
-  let events = [];
-  let currentIndex = 0;
+    function formatDateRange(title) {
+      const datePattern = /^(\d{1,2})\s(\w{3})(?:\s?-\s?(\d{1,2})\s?(\w{3}))?/i;
+      const match = title.match(datePattern);
 
-  function formatDateRange(title) {
-    const match = title.match(/^(\d{1,2})\s*(\w{3})(?:\s*-\s*(\d{1,2})\s*(\w{3}))?/i);
-    if (match) {
-      const startDay = parseInt(match[1], 10);
-      const startMonthKey = match[2].toLowerCase();
-      const startMonth = fullMonthNames[startMonthKey];
+      if (match) {
+        const startDay = parseInt(match[1], 10);
+        const startMonth = monthMap[match[2].toLowerCase()];
 
-      if (!startMonth) return '';
-
-      const endDayStr = match[3];
-      const endMonthKey = match[4]?.toLowerCase();
-      const endMonth = endMonthKey ? fullMonthNames[endMonthKey] : null;
-
-      if (endDayStr && endMonth) {
-        const endDay = parseInt(endDayStr, 10);
-        if (startMonthKey === endMonthKey) {
-          return `${startDay}–${endDay} ${startMonth}`;
-        } else {
-          return `${startDay} ${startMonth} – ${endDay} ${endMonth}`;
+        if (match[3] && match[4]) {
+          const endDay = parseInt(match[3], 10);
+          const endMonth = monthMap[match[4].toLowerCase()];
+          return `${startDay}/${startMonth} - ${endDay}/${endMonth}`;
         }
+
+        return `${startDay}/${startMonth}`;
       }
 
-      return `${startDay} ${startMonth}`;
+      return "";
     }
 
-    return '';
-  }
-
-  function removeDateFromTitle(title) {
-    return title.replace(/^(\d{1,2}\s*\w{3}(?:\s*-\s*\d{1,2}\s*\w{3})?)\s*[,:-]?\s*/i, '').trim();
-  }
-
-  async function fetchRSS() {
-    try {
-      const res = await fetch(rssUrl);
-      const data = await res.json();
-      const items = data.items || [];
-
-      events = items.map(item => {
-        const rawTitle = item.title || '';
-        const title = removeDateFromTitle(rawTitle);
-        const date = formatDateRange(rawTitle);
-        const location = item.description?.replace(/<[^>]*>/g, '').trim() || '';
-        const image = item.enclosure?.link || item.enclosure?.url || '';
-
-        return { title, date, location, image };
-      });
-
-      currentIndex = 0;
-
-    } catch (err) {
-      console.error("Fel vid hämtning:", err);
+    function decodeHtmlEntities(text) {
+      decoder.innerHTML = text;
+      return decoder.value;
     }
-  }
 
-  function showNext() {
-    if (events.length === 0) return;
+    function resetToWelcomeMessage() {
+      const eventTitle = document.getElementById("eventTitle");
+      eventTitle.textContent = "VÄLKOMMEN TILL ESKILSTUNA";
+    }
 
-    const e = events[currentIndex];
+    function showNextEvent() {
+      const eventTitle = document.getElementById("eventTitle");
 
-    const container = document.createElement("div");
-    container.className = "event-container";
+      if (events.length > 0) {
+        eventTitle.textContent = events[currentEventIndex].title;
+        currentEventIndex = (currentEventIndex + 1) % events.length;
+      } else {
+        resetToWelcomeMessage();
+      }
+    }
 
-    const img = document.createElement("img");
-    img.className = "event-image";
-    img.src = e.image;
-    img.alt = e.title;
+    function scheduleNextEvent() {
+      if (eventTimer) {
+        clearTimeout(eventTimer);
+      }
 
-    const info = document.createElement("div");
-    info.className = "event-info";
-    info.innerHTML = `<h1>${e.title}</h1><p>${e.date}</p><p>${e.location}</p>`;
+      eventTimer = setTimeout(() => {
+        showNextEvent();
+        scheduleNextEvent();
+      }, 10000);
+    }
 
-    container.appendChild(img);
-    container.appendChild(info);
+    async function fetchRSS() {
+      try {
+        const timestamp = Date.now();
+        const fullUrl = proxyUrl + encodeURIComponent(baseRssUrl + `&t=${timestamp}`);
 
-    wrapper.innerHTML = "";
-    wrapper.appendChild(container);
+        const response = await fetch(fullUrl);
+        if (!response.ok) {
+          throw new Error("Kunde inte hämta RSS-flödet.");
+        }
 
-    setTimeout(() => container.classList.add("visible"), 50);
-    currentIndex = (currentIndex + 1) % events.length;
-  }
+        const data = await response.text();
+        const parser = new DOMParser();
+        const xmlDoc = parser.parseFromString(data, "text/xml");
 
-  fetchRSS();
-  setInterval(fetchRSS, 60000);
-  setInterval(showNext, 10000);
-</script>
+        if (xmlDoc.querySelector("parsererror")) {
+          throw new Error("Ogiltig XML i RSS-flödet.");
+        }
 
+        const items = xmlDoc.getElementsByTagName("item");
+        const newEvents = [];
+        const leadingDatePattern = /^(\d{1,2}\s\w{3}(?:\s?-\s?\d{1,2}\s?\w{3})?)\s*/i;
+
+        for (let i = 0; i < items.length; i++) {
+          let title = items[i].getElementsByTagName("title")[0]?.textContent || "";
+          const formattedDate = formatDateRange(title);
+
+          title = title
+            .replace(leadingDatePattern, "")
+            .replace(/^,/, "")
+            .trim();
+
+          const displayTitle = `${formattedDate} ${decodeHtmlEntities(title)}`.trim();
+          newEvents.push({ title: displayTitle });
+        }
+
+        events = newEvents;
+        currentEventIndex = 0;
+
+        if (events.length === 0) {
+          resetToWelcomeMessage();
+
+          if (eventTimer) {
+            clearTimeout(eventTimer);
+            eventTimer = null;
+          }
+        } else {
+          showNextEvent();
+          scheduleNextEvent();
+        }
+
+        if (retryInterval) {
+          clearInterval(retryInterval);
+          retryInterval = null;
+        }
+
+      } catch (error) {
+        console.error(error);
+        resetToWelcomeMessage();
+
+        if (eventTimer) {
+          clearTimeout(eventTimer);
+          eventTimer = null;
+        }
+
+        if (!retryInterval) {
+          retryInterval = setInterval(fetchRSS, 60000);
+        }
+      }
+    }
+
+    fetchRSS();
+    setInterval(fetchRSS, 60 * 60 * 1000);
+  </script>
 </body>
 </html>
